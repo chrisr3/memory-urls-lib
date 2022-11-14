@@ -21,6 +21,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.security.Policy
 import java.util.Collections.singletonList
+import java.util.ServiceLoader
 import java.util.function.Function
 
 @ExtendWith(SecurityManagement::class)
@@ -28,7 +29,9 @@ class MemoryClassLoaderTest {
     companion object {
         const val DATA_PATH: String = "/my/enclave"
 
-        private val exampleJar = DummyJar(Paths.get("build"), ExampleTask::class.java, "example").build()
+        private val exampleJar = DummyJar(Paths.get("build"), ExampleTask::class.java, "example")
+            .withService("java.util.function.Function", ExampleTask::class.java)
+            .build()
         private val logger = LoggerFactory.getLogger(MemoryClassLoaderTest::class.java)
     }
 
@@ -102,6 +105,11 @@ class MemoryClassLoaderTest {
         with(MemoryClassLoader(singletonList(memoryURL), null)) {
             assertEquals(1, getURLs().size)
             assertEquals("memory:$DATA_PATH", getURLs()[0].toString())
+
+            val services = ServiceLoader.load(Function::class.java, this).toList()
+            assertThat(services)
+                .allMatch { it is Function }
+                .hasSize(1)
         }
     }
 

@@ -78,7 +78,7 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
                 cursor.position(cursor.position() + extraLength + entryDataSize.toInt())
 
                 // Check for a data descriptor trailing the data.
-                if (flagsField and 0x08 != 0 && entry.size > 0) {
+                if (flagsField and 0x08 != 0) {
                     var dataDescriptorSize = BASE_DATA_DESCRIPTOR_SIZE
                     val current = cursor.position()
                     val signature = cursor.getInt(current)

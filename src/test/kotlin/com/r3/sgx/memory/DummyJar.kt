@@ -14,7 +14,9 @@ import java.util.zip.ZipEntry
 /**
  * Creates a dummy jar containing the following:
  * - META-INF/MANIFEST.MF
+ * - A compressed binary file
  * - A compressed class file
+ * - A compressed empty file
  * - A directory entry
  *
  * The compression level is set to NO_COMPRESSION
@@ -71,6 +73,12 @@ class DummyJar(
     private lateinit var _path: Path
     val path: Path get() = _path
 
+    private val services = mutableMapOf<String, MutableSet<String>>()
+    fun withService(serviceType: String, serviceClass: Class<*>): DummyJar {
+        services.computeIfAbsent(serviceType) { linkedSetOf() }.add(serviceClass.name)
+        return this
+    }
+
     fun build(): DummyJar {
         val manifest = Manifest().apply {
             mainAttributes.also { main ->
@@ -82,16 +90,31 @@ class DummyJar(
             jar.setComment(testClass.name)
             jar.setLevel(compression.level)
 
+            // Put any services files
+            if (services.isNotEmpty()) {
+                jar.putNextEntry(directory("META-INF/services/"))
+            }
+            services.forEach { (serviceType, serviceNames) ->
+                val serviceData = serviceNames.joinToString(separator = "\r\n").toByteArray()
+                jar.putNextEntry(uncompressed("META-INF/services/$serviceType", serviceData))
+                jar.write(serviceData)
+            }
+
+            val directoryEntry = directoryOf(testClass)
+
             // One directory entry (stored)
-            jar.putNextEntry(directoryOf(testClass))
+            jar.putNextEntry(directoryEntry)
 
             // One compressed non-class file
-            jar.putNextEntry(compressed("binary.dat"))
+            jar.putNextEntry(compressed("${directoryEntry.name}binary.dat"))
             jar.write(arrayOfJunk())
 
             // One compressed class file
             jar.putNextEntry(compressed(testClass.resourceName))
             testClass.bytecode?.apply(jar::write)
+
+            // One compressed empty file
+            jar.putNextEntry(compressed("${directoryEntry.name}empty.txt"))
         }
         assertThat(_path).isRegularFile()
         return this
