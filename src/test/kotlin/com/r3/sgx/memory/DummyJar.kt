@@ -3,6 +3,7 @@ package com.r3.sgx.memory
 import org.assertj.core.api.Assertions.assertThat
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Random
 import java.util.jar.Attributes
 import java.util.jar.JarOutputStream
 import java.util.jar.Manifest
@@ -32,6 +33,10 @@ class DummyJar(
     }
 
     private companion object {
+        private const val DATA_SIZE = 1536
+
+        private fun arrayOfJunk() = ByteArray(DATA_SIZE).also(Random()::nextBytes)
+
         private fun uncompressed(name: String, data: ByteArray) = ZipEntry(name).apply {
             method = ZipEntry.STORED
             compressedSize = data.size.toLong()
@@ -79,6 +84,10 @@ class DummyJar(
 
             // One directory entry (stored)
             jar.putNextEntry(directoryOf(testClass))
+
+            // One compressed non-class file
+            jar.putNextEntry(compressed("binary.dat"))
+            jar.write(arrayOfJunk())
 
             // One compressed class file
             jar.putNextEntry(compressed(testClass.resourceName))
