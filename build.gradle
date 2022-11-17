@@ -53,6 +53,12 @@ tasks.withType(Test).configureEach {
         systemProperty 'test.gradle.home', gradle.gradleHomeDir.toURI().path
         systemProperty 'test.project.dir', projectDir.toURI().path
         systemProperty 'testing-libraries.path', configurations.testingLibraries.asPath
+
+        systemProperty 'org.slf4j.simpleLogger.defaultLogLevel', 'info'
+        systemProperty 'org.slf4j.simpleLogger.dateTimeFormat', 'yyyy-MM-dd HH:mm:ss:SSS Z'
+        systemProperty 'org.slf4j.simpleLogger.showDateTime', true
+        systemProperty 'org.slf4j.simpleLogger.showShortLogName', true
+        systemProperty 'org.slf4j.simpleLogger.showThreadName', false
     }
 }
 

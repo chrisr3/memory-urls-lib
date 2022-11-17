@@ -5,6 +5,7 @@ import java.io.IOException
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder.LITTLE_ENDIAN
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets.US_ASCII
 import java.nio.charset.StandardCharsets.UTF_8
 import java.security.CodeSigner
@@ -12,19 +13,47 @@ import java.security.CodeSource
 import java.security.SecureClassLoader
 import java.util.Collections
 import java.util.Enumeration
+import java.util.zip.ZipEntry
 import java.util.zip.ZipException
 import java.util.zip.ZipInputStream
 
+@Suppress("UsePropertyAccessSyntax")
 open class MemoryClassLoader @Throws(IOException::class) constructor(
     urls: List<MemoryURL>, parent: ClassLoader?
 ) : SecureClassLoader(parent) {
     private companion object {
         private const val LOCAL_BLOCK_SIGNATURE = 0x04034b50
         private const val DATA_DESCRIPTOR_SIGNATURE = 0x08074b50
+        private const val CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50
+        private const val END_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50
+        private const val END_ZIP64_CENTRAL_DIRECTORY_SIGNATURE = 0x06064b50
         private const val FLAGS_OFFSET = 6
         private const val COMPRESSED_SIZE_OFFSET = 18
         private const val BASE_DATA_DESCRIPTOR_SIZE = 12
+        private const val DATA_DESCRIPTOR_FLAG = 0x08
+        private const val LANGUAGE_ENCODING_FLAG = 0x0800
+        private const val EXTRA_ZIP64_TAG = 1
+        private const val EOF = -1
+
         private val logger = LoggerFactory.getLogger(MemoryClassLoader::class.java)
+
+        private fun ByteBuffer.skip(skipLength: Int): ByteBuffer {
+            return position(position() + skipLength)
+        }
+
+        private fun charsetFor(flags: Int): Charset {
+            return if (flags and LANGUAGE_ENCODING_FLAG != 0) {
+                UTF_8
+            } else {
+                US_ASCII
+            }
+        }
+
+        private inline fun zipRequires(predicate: Boolean, lazyMessage: () -> String) {
+            if (!predicate) {
+                throw ZipException(lazyMessage())
+            }
+        }
     }
 
     @Suppress("unused")
@@ -34,66 +63,182 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
     private val tablesOfContents = urls.associateWith(::getTableOfContents)
     private val urls = ArrayList(urls)
 
-    @Suppress("UsePropertyAccessSyntax")
     @Throws(IOException::class)
     private fun getTableOfContents(url: MemoryURL): Map<String, Int> {
         val connection = url.value.openConnection()
-        return ZipInputStream(connection.getInputStream()).use { zip ->
-            val cursor = (connection.content as ByteBuffer).duplicate().order(LITTLE_ENDIAN)
-            val contents = linkedMapOf<String, Int>()
+        val cursor = (connection.content as ByteBuffer).duplicate().order(LITTLE_ENDIAN)
+
+        val entries = mutableMapOf<Int, String>()
+
+        ZipInputStream(connection.getInputStream()).use { zip ->
+            // Iterate through the ZIP's data contents.
+            // Not all of these entries may be "live".
             while (true) {
                 val entry = zip.nextEntry ?: break
                 zip.closeEntry()
 
-                val position = cursor.position()
-                if (cursor.getInt(position) != LOCAL_BLOCK_SIGNATURE) {
-                    throw ZipException("Incorrect computed position for ${url.value.path}!/${entry.name}")
+                // Compute the index of the next file entry inside the ByteBuffer.
+                val position = getPositionAndConsume(entry, cursor)
+                zipRequires(position >= 0) {
+                    "Incorrect computed position for ${url.value.path}!/${entry.name}."
                 }
 
-                val entryDataSize = entry.compressedSize
-                if (entryDataSize > Int.MAX_VALUE) {
-                    throw ZipException("Zip entry ${entry.name} has invalid size $entryDataSize")
-                }
-
-                if (contents.putIfAbsent(entry.name, position) != null) {
-                    logger.warn("Duplicate entry {} in {}", entry.name, url.value)
-                }
-
-                val flagsField = cursor.getShort(position + FLAGS_OFFSET).toInt()
-                cursor.position(position + COMPRESSED_SIZE_OFFSET)
-                val compressedField = cursor.getInt()
-                val uncompressedField = cursor.getInt()
-                val nameLength = cursor.getShort().toUShort().toInt()
-                val extraLength = cursor.getShort().toUShort().toInt()
-
-                // Check that we're indexing the correct entry.
-                val nameBytes = ByteArray(nameLength)
-                cursor.get(nameBytes)
-                val name = String(nameBytes, if (flagsField and 0x800 != 0) UTF_8 else US_ASCII)
-                if (name != entry.name) {
-                    throw ZipException("Expected ${entry.name} but found $name")
-                }
-
-                // Advance past all headers and the data itself.
-                cursor.position(cursor.position() + extraLength + entryDataSize.toInt())
-
-                // Check for a data descriptor trailing the data.
-                if (flagsField and 0x08 != 0) {
-                    var dataDescriptorSize = BASE_DATA_DESCRIPTOR_SIZE
-                    val current = cursor.position()
-                    val signature = cursor.getInt(current)
-                    if (signature == DATA_DESCRIPTOR_SIGNATURE) {
-                        // This signature is optional.
-                        dataDescriptorSize += Int.SIZE_BYTES
-                    }
-                    if (compressedField == -1 || uncompressedField == -1) {
-                        // This is a Zip64 file entry.
-                        dataDescriptorSize += (Long.SIZE_BYTES - Int.SIZE_BITS) * 2
-                    }
-                    cursor.position(current + dataDescriptorSize)
-                }
+                entries[position] = entry.name
             }
-            contents
+        }
+
+        val contents = linkedMapOf<String, Int>()
+
+        // We should now have reached the Central Directory records,
+        // which provide the indices of the ZIP's "live" entries.
+        while (cursor.hasRemaining()) {
+            val signature = cursor.getInt()
+            if (signature != CENTRAL_DIRECTORY_SIGNATURE) {
+                // This should be the "end of central directory" record.
+                if (signature == END_CENTRAL_DIRECTORY_SIGNATURE) {
+                    validateCentralDirectory(cursor, contents)
+                    break
+                } else if (signature == END_ZIP64_CENTRAL_DIRECTORY_SIGNATURE) {
+                    validateZip64CentralDirectory(cursor, contents)
+                    break
+                }
+                throw ZipException("End of Central Directory record is missing.")
+            }
+
+            cursor.skip(UInt.SIZE_BYTES)
+            val flagsField = cursor.getShort().toUShort().toInt()
+
+            cursor.skip(3 * (UShort.SIZE_BYTES + UInt.SIZE_BYTES))
+
+            val nameLength = cursor.getShort().toUShort().toInt()
+            val extraLength = cursor.getShort().toUShort().toInt()
+            val commentLength = cursor.getShort().toUShort().toInt()
+
+            cursor.skip(ULong.SIZE_BYTES)
+
+            var localOffset = cursor.getInt()
+
+            val nameBytes = ByteArray(nameLength)
+            cursor.get(nameBytes)
+            val name = String(nameBytes, charsetFor(flagsField))
+
+            if (localOffset == -1) {
+                val extra = cursor.slice().limit(extraLength)
+                while (extra.hasRemaining()) {
+                    val blockTag = extra.getShort().toUShort().toInt()
+                    val blockLength = extra.getShort().toUShort().toInt()
+                    if (blockTag == EXTRA_ZIP64_TAG) {
+                        val offset = extra.getLong(extra.position() + 16).toULong()
+                        zipRequires(offset < cursor.capacity().toUInt()) {
+                            "Zip entry $name has invalid offset $offset."
+                        }
+                        localOffset = offset.toInt()
+                        break
+                    }
+                    extra.skip(blockLength)
+                }
+            } else if (localOffset.toUInt().toLong() >= cursor.capacity()) {
+                throw ZipException("Zip entry $name has invalid offset ${localOffset.toUInt()}.")
+            }
+
+            val entryName = entries.remove(localOffset)
+                ?: throw ZipException("Directory entry $name has no file data.")
+
+            if (name != entryName) {
+                throw ZipException("Directory entry $name, but file data is for $entryName.")
+            } else if (contents.putIfAbsent(entryName, localOffset) != null) {
+                logger.warn("Duplicate entry {} in {}.", entryName, url.value)
+            }
+
+            // Skip the remainder of this directory entry.
+            cursor.skip(extraLength + commentLength)
+        }
+
+        return contents
+    }
+
+    private fun getPositionAndConsume(entry: ZipEntry, cursor: ByteBuffer): Int {
+        val position = cursor.position()
+        if (cursor.getInt(position) != LOCAL_BLOCK_SIGNATURE) {
+            return EOF
+        }
+
+        val entryDataSize = entry.compressedSize
+        zipRequires(entryDataSize < cursor.capacity()) {
+            "Zip entry ${entry.name} has invalid size $entryDataSize."
+        }
+
+        val flagsField = cursor.getShort(position + FLAGS_OFFSET).toUShort().toInt()
+        cursor.position(position + COMPRESSED_SIZE_OFFSET)
+        val compressedField = cursor.getInt()
+        val uncompressedField = cursor.getInt()
+        val nameLength = cursor.getShort().toUShort().toInt()
+        val extraLength = cursor.getShort().toUShort().toInt()
+
+        // Check that we're reading the correct entry.
+        val nameBytes = ByteArray(nameLength)
+        cursor.get(nameBytes)
+        val name = String(nameBytes, charsetFor(flagsField))
+        zipRequires(name == entry.name) {
+            "Expected ${entry.name} but found $name."
+        }
+
+        // Advance past all extra records and the data itself.
+        cursor.skip(extraLength + entryDataSize.toInt())
+
+        // Check for a data descriptor trailing the data.
+        if (flagsField and DATA_DESCRIPTOR_FLAG != 0) {
+            var dataDescriptorSize = BASE_DATA_DESCRIPTOR_SIZE
+            val current = cursor.position()
+            val signature = cursor.getInt(current)
+            if (signature == DATA_DESCRIPTOR_SIGNATURE) {
+                // This signature is optional.
+                dataDescriptorSize += UInt.SIZE_BYTES
+            }
+            if (compressedField == -1 || uncompressedField == -1) {
+                // This is a Zip64 file entry.
+                dataDescriptorSize += (ULong.SIZE_BYTES - UInt.SIZE_BITS) * 2
+            }
+            cursor.position(current + dataDescriptorSize)
+        }
+
+        return position
+    }
+
+    private fun validateCentralDirectory(cursor: ByteBuffer, contents: Map<String, Int>) {
+        val thisDiskNumber = cursor.getShort().toUShort().toInt()
+        val startDiskNumber = cursor.getShort().toUShort().toInt()
+        zipRequires(thisDiskNumber == 0 && startDiskNumber == 0) {
+            "Multi-part archives are not supported."
+        }
+
+        val thisDiskTotalEntries = cursor.getShort().toUShort().toInt()
+        zipRequires(thisDiskTotalEntries == contents.size) {
+            "Found ${contents.size} ZIP entries, but expected $thisDiskTotalEntries."
+        }
+
+        val totalEntries = cursor.getShort().toUShort().toInt()
+        zipRequires(totalEntries == thisDiskTotalEntries) {
+            "ZIP contains $thisDiskTotalEntries entries, but expects $totalEntries entries overall."
+        }
+    }
+
+    private fun validateZip64CentralDirectory(cursor: ByteBuffer, contents: Map<String, Int>) {
+        cursor.skip(ULong.SIZE_BYTES + UShort.SIZE_BYTES + UShort.SIZE_BYTES)
+        val thisDiskNumber = cursor.getInt().toUInt()
+        val startDiskNumber = cursor.getInt().toUInt()
+        zipRequires(thisDiskNumber == 0u && startDiskNumber == 0u) {
+            "Multi-part archives are not supported."
+        }
+
+        val thisDiskTotalEntries = cursor.getLong().toULong()
+        zipRequires(thisDiskTotalEntries == contents.size.toULong()) {
+            "Found ${contents.size} ZIP entries, but expected $thisDiskTotalEntries."
+        }
+
+        val totalEntries = cursor.getLong().toULong()
+        zipRequires(totalEntries == thisDiskTotalEntries) {
+            "ZIP contains $thisDiskTotalEntries entries, but expects $totalEntries entries overall."
         }
     }
 
