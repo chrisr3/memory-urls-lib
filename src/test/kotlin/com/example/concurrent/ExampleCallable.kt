@@ -5,6 +5,7 @@ import java.util.concurrent.Callable
 
 class ExampleCallable(private val input: Int) : Callable<String> {
     private val logger = LoggerFactory.getLogger(ExampleCallable::class.java)
+
     override fun call(): String {
         logger.info("Executing: {}", input)
 
