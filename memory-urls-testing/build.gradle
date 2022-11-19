@@ -1,0 +1,36 @@
+import static org.gradle.api.attributes.LibraryElements.JAR
+import static org.gradle.api.attributes.LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE
+
+plugins {
+    id 'org.jetbrains.kotlin.jvm'
+}
+
+dependencies {
+    implementation(project(':')) {
+        attributes {
+            attribute(LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements, JAR))
+        }
+    }
+    implementation "org.slf4j:slf4j-api:$slf4j_version"
+    runtimeOnly "org.slf4j:slf4j-simple:$slf4j_version"
+}
+
+tasks.named('jar', Jar) {
+    from(configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }) {
+        exclude '**/module-info.class'
+        exclude 'META-INF/*.SF'
+        exclude 'META-INF/*.DSA'
+        exclude 'META-INF/*.RSA'
+        exclude 'META-INF/INDEX.LIST'
+        exclude 'META-INF/versions/**'
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE**'
+        exclude 'META-INF/NOTICE**'
+    }
+
+    manifest {
+        attributes(
+            'Main-Class': 'com.r3.sgx.memory.testing.Main'
+        )
+    }
+}

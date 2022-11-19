@@ -5,8 +5,6 @@ import java.io.IOException
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder.LITTLE_ENDIAN
-import java.nio.charset.Charset
-import java.nio.charset.StandardCharsets.US_ASCII
 import java.nio.charset.StandardCharsets.UTF_8
 import java.security.CodeSigner
 import java.security.CodeSource
@@ -31,7 +29,6 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
         private const val COMPRESSED_SIZE_OFFSET = 18
         private const val BASE_DATA_DESCRIPTOR_SIZE = 12
         private const val DATA_DESCRIPTOR_FLAG = 0x08
-        private const val LANGUAGE_ENCODING_FLAG = 0x0800
         private const val EXTRA_ZIP64_TAG = 1
         private const val EOF = -1
 
@@ -41,18 +38,14 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
             return position(position() + skipLength)
         }
 
-        private fun charsetFor(flags: Int): Charset {
-            return if (flags and LANGUAGE_ENCODING_FLAG != 0) {
-                UTF_8
-            } else {
-                US_ASCII
-            }
-        }
-
         private inline fun zipRequires(predicate: Boolean, lazyMessage: () -> String) {
             if (!predicate) {
                 throw ZipException(lazyMessage())
             }
+        }
+
+        init {
+            registerAsParallelCapable()
         }
     }
 
@@ -78,7 +71,7 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
                 zip.closeEntry()
 
                 // Compute the index of the next file entry inside the ByteBuffer.
-                val position = getPositionAndConsume(entry, cursor)
+                val position = getPositionAndNext(entry, cursor)
                 zipRequires(position >= 0) {
                     "Incorrect computed position for ${url.value.path}!/${entry.name}."
                 }
@@ -88,27 +81,31 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
         }
 
         val contents = linkedMapOf<String, Int>()
+        var actualSize = 0
 
         // We should now have reached the Central Directory records,
         // which provide the indices of the ZIP's "live" entries.
         while (cursor.hasRemaining()) {
             val signature = cursor.getInt()
             if (signature != CENTRAL_DIRECTORY_SIGNATURE) {
+                actualSize += contents.size
+
                 // This should be the "end of central directory" record.
                 if (signature == END_CENTRAL_DIRECTORY_SIGNATURE) {
-                    validateCentralDirectory(cursor, contents)
+                    validateCentralDirectory(cursor, actualSize)
                     break
                 } else if (signature == END_ZIP64_CENTRAL_DIRECTORY_SIGNATURE) {
-                    validateZip64CentralDirectory(cursor, contents)
+                    validateZip64CentralDirectory(cursor, actualSize)
                     break
                 }
+
                 throw ZipException("End of Central Directory record is missing.")
             }
 
-            cursor.skip(UInt.SIZE_BYTES)
-            val flagsField = cursor.getShort().toUShort().toInt()
-
-            cursor.skip(3 * (UShort.SIZE_BYTES + UInt.SIZE_BYTES))
+            // This is a JAR rather than a plain ZIP, and so
+            // we will always use UTF-8 encoding regardless
+            // of the Language Encoding Flag setting (bit 11).
+            cursor.skip(4 * (UShort.SIZE_BYTES + UInt.SIZE_BYTES))
 
             val nameLength = cursor.getShort().toUShort().toInt()
             val extraLength = cursor.getShort().toUShort().toInt()
@@ -120,7 +117,7 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
 
             val nameBytes = ByteArray(nameLength)
             cursor.get(nameBytes)
-            val name = String(nameBytes, charsetFor(flagsField))
+            val name = String(nameBytes, UTF_8)
 
             if (localOffset == -1) {
                 val extra = cursor.slice().limit(extraLength)
@@ -141,13 +138,14 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
                 throw ZipException("Zip entry $name has invalid offset ${localOffset.toUInt()}.")
             }
 
-            val entryName = entries.remove(localOffset)
+            val entryName = entries[localOffset]
                 ?: throw ZipException("Directory entry $name has no file data.")
 
             if (name != entryName) {
                 throw ZipException("Directory entry $name, but file data is for $entryName.")
             } else if (contents.putIfAbsent(entryName, localOffset) != null) {
                 logger.warn("Duplicate entry {} in {}.", entryName, url.value)
+                ++actualSize
             }
 
             // Skip the remainder of this directory entry.
@@ -157,7 +155,7 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
         return contents
     }
 
-    private fun getPositionAndConsume(entry: ZipEntry, cursor: ByteBuffer): Int {
+    private fun getPositionAndNext(entry: ZipEntry, cursor: ByteBuffer): Int {
         val position = cursor.position()
         if (cursor.getInt(position) != LOCAL_BLOCK_SIGNATURE) {
             return EOF
@@ -178,7 +176,7 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
         // Check that we're reading the correct entry.
         val nameBytes = ByteArray(nameLength)
         cursor.get(nameBytes)
-        val name = String(nameBytes, charsetFor(flagsField))
+        val name = String(nameBytes, UTF_8)
         zipRequires(name == entry.name) {
             "Expected ${entry.name} but found $name."
         }
@@ -205,7 +203,7 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
         return position
     }
 
-    private fun validateCentralDirectory(cursor: ByteBuffer, contents: Map<String, Int>) {
+    private fun validateCentralDirectory(cursor: ByteBuffer, actualSize: Int) {
         val thisDiskNumber = cursor.getShort().toUShort().toInt()
         val startDiskNumber = cursor.getShort().toUShort().toInt()
         zipRequires(thisDiskNumber == 0 && startDiskNumber == 0) {
@@ -213,8 +211,8 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
         }
 
         val thisDiskTotalEntries = cursor.getShort().toUShort().toInt()
-        zipRequires(thisDiskTotalEntries == contents.size) {
-            "Found ${contents.size} ZIP entries, but expected $thisDiskTotalEntries."
+        zipRequires(thisDiskTotalEntries == actualSize) {
+            "Found $actualSize ZIP entries, but expected $thisDiskTotalEntries."
         }
 
         val totalEntries = cursor.getShort().toUShort().toInt()
@@ -223,7 +221,7 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
         }
     }
 
-    private fun validateZip64CentralDirectory(cursor: ByteBuffer, contents: Map<String, Int>) {
+    private fun validateZip64CentralDirectory(cursor: ByteBuffer, actualSize: Int) {
         cursor.skip(ULong.SIZE_BYTES + UShort.SIZE_BYTES + UShort.SIZE_BYTES)
         val thisDiskNumber = cursor.getInt().toUInt()
         val startDiskNumber = cursor.getInt().toUInt()
@@ -232,8 +230,8 @@ open class MemoryClassLoader @Throws(IOException::class) constructor(
         }
 
         val thisDiskTotalEntries = cursor.getLong().toULong()
-        zipRequires(thisDiskTotalEntries == contents.size.toULong()) {
-            "Found ${contents.size} ZIP entries, but expected $thisDiskTotalEntries."
+        zipRequires(thisDiskTotalEntries == actualSize.toULong()) {
+            "Found $actualSize ZIP entries, but expected $thisDiskTotalEntries."
         }
 
         val totalEntries = cursor.getLong().toULong()
