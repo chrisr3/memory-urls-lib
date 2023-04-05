@@ -1,5 +1,6 @@
-import static org.gradle.api.JavaVersion.VERSION_11
 import static org.gradle.jvm.toolchain.JavaLanguageVersion.of
+import static org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
+import static org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_1_8
 
 plugins {
     id 'org.jetbrains.kotlin.jvm'
@@ -9,7 +10,7 @@ plugins {
 allprojects {
     java {
         toolchain {
-            languageVersion = of(11)
+            languageVersion = of(javaVersion)
 
             // Configure Gradle to use IBM J9 JDK toolchain.
             // (You will need to install J9 manually first.)
@@ -22,11 +23,13 @@ allprojects {
     }
 
     tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-        kotlinOptions {
-            languageVersion = '1.7'
-            apiVersion = '1.7'
-            jvmTarget = VERSION_11
-            freeCompilerArgs = ['-Xjvm-default=all']
+        compilerOptions {
+            languageVersion = KOTLIN_1_8
+            apiVersion = KOTLIN_1_8
+            jvmTarget = JVM_11
+            freeCompilerArgs.addAll([
+                '-Xjvm-default=all'
+            ])
         }
     }
 }
@@ -38,7 +41,7 @@ configurations {
 }
 
 dependencies {
-    api "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    api "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     implementation "org.slf4j:slf4j-api:$slf4j_version"
 
     testImplementation "org.assertj:assertj-core:$assertj_version"
@@ -48,12 +51,16 @@ dependencies {
     testRuntimeOnly "org.apache.logging.log4j:log4j-slf4j2-impl:$log4j_version"
     testRuntimeOnly "org.apache.logging.log4j:log4j-core:$log4j_version"
 
-    testingLibraries "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    testingLibraries "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     testingLibraries "org.slf4j:slf4j-simple:$slf4j_version"
 }
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = of(testJavaVersion)
+    }
 
     doFirst {
         // Prevent the project from creating temporary files outside of the build directory.
@@ -74,5 +81,5 @@ tasks.withType(Test).configureEach {
 }
 
 wrapper {
-    gradleVersion = '7.6'
+    gradleVersion = '8.0.2'
 }
