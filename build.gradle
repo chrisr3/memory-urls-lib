@@ -8,28 +8,32 @@ plugins {
 }
 
 allprojects {
-    java {
-        toolchain {
-            languageVersion = of(javaVersion)
+    pluginManager.withPlugin('java') {
+        java {
+            toolchain {
+                languageVersion = of(javaVersion)
 
-            // Configure Gradle to use IBM J9 JDK toolchain.
-            // (You will need to install J9 manually first.)
-            //vendor = JvmVendorSpec.IBM
-            //implementation = JvmImplementation.J9
+                // Configure Gradle to use IBM J9 JDK toolchain.
+                // (You will need to install J9 manually first.)
+                //vendor = JvmVendorSpec.IBM
+                //implementation = JvmImplementation.J9
 
-            // Configure Gradle to use Azul JDK toolchain.
-            //vendor = JvmVendorSpec.AZUL
+                // Configure Gradle to use Azul JDK toolchain.
+                //vendor = JvmVendorSpec.AZUL
+            }
         }
     }
 
-    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-        compilerOptions {
-            languageVersion = KOTLIN_1_8
-            apiVersion = KOTLIN_1_8
-            jvmTarget = JVM_11
-            freeCompilerArgs.addAll([
-                '-Xjvm-default=all'
-            ])
+    pluginManager.withPlugin('org.jetbrains.kotlin.jvm') {
+        tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            compilerOptions {
+                languageVersion = KOTLIN_1_8
+                apiVersion = KOTLIN_1_8
+                jvmTarget = JVM_11
+                freeCompilerArgs.addAll([
+                    '-Xjvm-default=all'
+                ])
+            }
         }
     }
 }
