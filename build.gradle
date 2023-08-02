@@ -1,6 +1,6 @@
 import static org.gradle.jvm.toolchain.JavaLanguageVersion.of
 import static org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
-import static org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_1_8
+import static org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_1_9
 
 plugins {
     id 'org.jetbrains.kotlin.jvm'
@@ -27,8 +27,8 @@ allprojects {
     pluginManager.withPlugin('org.jetbrains.kotlin.jvm') {
         tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
             compilerOptions {
-                languageVersion = KOTLIN_1_8
-                apiVersion = KOTLIN_1_8
+                languageVersion = KOTLIN_1_9
+                apiVersion = KOTLIN_1_9
                 jvmTarget = JVM_11
                 freeCompilerArgs.addAll([
                     '-Xjvm-default=all'
@@ -51,6 +51,7 @@ dependencies {
     testImplementation "org.assertj:assertj-core:$assertj_version"
     testImplementation "org.junit.jupiter:junit-jupiter-api:$junit_jupiter_version"
     testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:$junit_jupiter_version"
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
     testRuntimeOnly "org.apache.logging.log4j:log4j-slf4j2-impl:$log4j_version"
     testRuntimeOnly "org.apache.logging.log4j:log4j-core:$log4j_version"
@@ -85,5 +86,5 @@ tasks.withType(Test).configureEach {
 }
 
 wrapper {
-    gradleVersion = '8.1.1'
+    gradleVersion = '8.2.1'
 }
