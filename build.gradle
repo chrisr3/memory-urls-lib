@@ -70,6 +70,7 @@ tasks.withType(Test).configureEach {
     doFirst {
         // Prevent the project from creating temporary files outside of the build directory.
         systemProperty 'java.io.tmpdir', buildDir.absolutePath
+        systemProperty 'java.security.manager', 'allow'
 
         systemProperty 'java.security.policy', file('permissive.policy').toURI().toURL()
         systemProperty 'test.gradle.user.home', gradle.gradleUserHomeDir.toURI().path
