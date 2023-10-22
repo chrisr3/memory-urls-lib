@@ -1,7 +1,7 @@
-package com.r3.sgx.memory
+package com.example.memory
 
 import com.example.concurrent.ExampleCallable
-import com.r3.sgx.memory.DummyJar.Compression.BEST
+import com.example.memory.DummyJar.Compression.BEST
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test

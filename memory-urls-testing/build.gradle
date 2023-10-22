@@ -30,7 +30,7 @@ tasks.named('jar', Jar) {
 
     manifest {
         attributes(
-            'Main-Class': 'com.r3.sgx.memory.testing.Main'
+            'Main-Class': 'com.example.memory.testapp.Main'
         )
     }
 }

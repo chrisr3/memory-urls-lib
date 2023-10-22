@@ -1,4 +1,4 @@
-package com.r3.sgx.memory
+package com.example.memory
 
 import org.slf4j.LoggerFactory
 import java.io.IOException
@@ -15,7 +15,6 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipException
 import java.util.zip.ZipInputStream
 
-@Suppress("UsePropertyAccessSyntax")
 open class MemoryClassLoader @Throws(IOException::class) constructor(
     urls: List<MemoryURL>, parent: ClassLoader?
 ) : SecureClassLoader(parent) {

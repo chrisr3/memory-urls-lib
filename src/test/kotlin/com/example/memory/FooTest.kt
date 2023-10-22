@@ -1,4 +1,4 @@
-package com.r3.sgx.memory
+package com.example.memory
 
 import org.junit.jupiter.api.Test
 import java.net.URI

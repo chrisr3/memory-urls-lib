@@ -1,4 +1,4 @@
-package com.r3.sgx.memory
+package com.example.memory
 
 import com.example.testing.ExampleTask
 import org.assertj.core.api.Assertions.assertThat

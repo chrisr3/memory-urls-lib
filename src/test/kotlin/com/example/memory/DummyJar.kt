@@ -1,4 +1,4 @@
-package com.r3.sgx.memory
+package com.example.memory
 
 import org.assertj.core.api.Assertions.assertThat
 import java.nio.file.Files

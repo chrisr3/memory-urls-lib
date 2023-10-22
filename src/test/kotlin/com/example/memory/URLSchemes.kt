@@ -1,4 +1,4 @@
-package com.r3.sgx.memory
+package com.example.memory
 
 import java.net.MalformedURLException
 import java.net.URL

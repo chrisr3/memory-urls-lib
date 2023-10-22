@@ -1,4 +1,4 @@
-package com.r3.sgx.memory
+package com.example.memory
 
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -15,7 +15,7 @@ import java.nio.ByteBuffer
 class MemoryURLStreamHandlerTest {
     companion object {
         const val DATA_PATH: String = "/my/enclave"
-        const val data: String = "Wibble!"
+        const val DATA: String = "Wibble!"
         const val EOF = -1
     }
 
@@ -26,14 +26,14 @@ class MemoryURLStreamHandlerTest {
 
     @Test
     fun testMemoryURL() {
-        val (url, urlLock) = URLSchemes.createMemoryURL(DATA_PATH, ByteBuffer.wrap(data.toByteArray()))
+        val (url, urlLock) = URLSchemes.createMemoryURL(DATA_PATH, ByteBuffer.wrap(DATA.toByteArray()))
         assertEquals("memory:/my/enclave", url.toString())
         assertEquals("/my/enclave", url.path)
         assertEquals("/my/enclave", urlLock)
         assertNotSame(url.path, urlLock)
         url.openConnection().apply {
             assertEquals("application/octet-stream", contentType)
-            assertEquals(data.length, contentLength)
+            assertEquals(DATA.length, contentLength)
             assertFalse(allowUserInteraction)
             assertFalse(doOutput)
             assertFalse(useCaches)
@@ -45,11 +45,10 @@ class MemoryURLStreamHandlerTest {
     fun testExistingMemoryURL() {
         URLSchemes.createMemoryURL(DATA_PATH, ByteBuffer.wrap(byteArrayOf()))
         assertThrows<MalformedURLException> {
-            URLSchemes.createMemoryURL(DATA_PATH, ByteBuffer.wrap(data.toByteArray()))
+            URLSchemes.createMemoryURL(DATA_PATH, ByteBuffer.wrap(DATA.toByteArray()))
         }
     }
 
-    @Suppress("UsePropertyAccessSyntax")
     @Test
     fun testReadOnlyMemoryBufferCannotBeModifiedAccidentally() {
         val buffer = ByteBuffer.allocate(Int.SIZE_BYTES + Int.SIZE_BYTES).let { buf ->
@@ -63,7 +62,6 @@ class MemoryURLStreamHandlerTest {
         assertEquals(1, (memoryURL.content as ByteBuffer).getInt())
     }
 
-    @Suppress("UsePropertyAccessSyntax")
     @Test
     fun testWritableMemoryBufferCannotBeModifiedAccidentally() {
         val buffer = ByteBuffer.allocate(Int.SIZE_BYTES + Int.SIZE_BYTES)

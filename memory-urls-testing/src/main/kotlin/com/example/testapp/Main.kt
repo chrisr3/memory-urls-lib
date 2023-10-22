@@ -1,9 +1,9 @@
 @file:JvmName("Main")
-package com.r3.sgx.memory.testing
+package com.example.memory.testapp
 
-import com.r3.sgx.memory.MemoryClassLoader
-import com.r3.sgx.memory.MemoryURL
-import com.r3.sgx.memory.MemoryURLStreamHandler
+import com.example.memory.MemoryClassLoader
+import com.example.memory.MemoryURL
+import com.example.memory.MemoryURLStreamHandler
 import org.slf4j.LoggerFactory
 import java.io.IOException
 import java.net.MalformedURLException

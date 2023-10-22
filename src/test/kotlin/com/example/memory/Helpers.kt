@@ -1,5 +1,5 @@
 @file:JvmName("Helpers")
-package com.r3.sgx.memory
+package com.example.memory
 
 import java.io.InputStream
 import java.nio.file.Path

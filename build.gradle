@@ -30,6 +30,7 @@ allprojects {
                 languageVersion = KOTLIN_1_9
                 apiVersion = KOTLIN_1_9
                 jvmTarget = JVM_11
+                allWarningsAsErrors = true
                 freeCompilerArgs.addAll([
                     '-Xjvm-default=all'
                 ])

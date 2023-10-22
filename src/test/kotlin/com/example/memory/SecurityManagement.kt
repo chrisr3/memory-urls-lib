@@ -1,4 +1,4 @@
-package com.r3.sgx.memory
+package com.example.memory
 
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.extension.AfterAllCallback
