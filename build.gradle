@@ -88,5 +88,5 @@ tasks.withType(Test).configureEach {
 }
 
 wrapper {
-    gradleVersion = '8.4'
+    gradleVersion = '8.5'
 }
